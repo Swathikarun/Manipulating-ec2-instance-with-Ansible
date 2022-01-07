@@ -1,0 +1,98 @@
+---
+- name: "Creating ec2 instance"
+  hosts: localhost
+  vars:
+    keypair_name: "ansible"
+    access_key: "AKIA4DVZNHYMGAI2IHUE"
+    secret_key: "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"
+    region: "ap-south-1"
+    sg1: "ansible-remote"
+    sg2: "webserver"
+  tasks:
+    - name: "AWS: Creating ssh key"
+      ec2_key:
+        name: "{{ keypair_name }}"
+        aws_access_key: "{{ access_key }}"
+        aws_secret_key: "{{ secret_key }}"
+        region: "{{ region }}"
+        state: present
+      
+      register: key_content
+
+    - debug:
+        var: key_content
+
+    - name: "Saving keypair"
+      when: key_content.changed == true
+      copy:
+        content: "{ key_content.key.private_key }}"
+        dest: "{{ keypair_name }}.pem"
+        mode: 0400
+
+    - name: "AWS: Creating Security Group"
+      ec2_group:
+        name: "{{ sg1 }}"
+        description: "Allow port 22 Connection"
+        aws_access_key: "{{ access_key }}"
+        aws_secret_key: "{{ secret_key }}"
+        region: "{{ region }}"
+        rules:
+          - proto: tcp
+            from_port: 22
+            to_port: 22
+            cidr_ip: 0.0.0.0/0
+            cidr_ipv6: ::/0
+
+        tags:
+              Name: "{{ sg1 }}"
+
+      register: sg1_status
+
+    - name: "AWS: Creating Security Group {{ sg2 }}"
+      ec2_group:
+        name: "{{ sg2 }}"
+        description: "Allow port 80 & 443 Connection"
+        aws_access_key: "{{ access_key }}"
+        aws_secret_key: "{{ secret_key }}"
+        region: "{{ region }}"
+        rules:
+          - proto: tcp
+            from_port: 80
+            to_port: 80
+            cidr_ip: 0.0.0.0/0
+            cidr_ipv6: ::/0
+
+          - proto: tcp
+            from_port: 443
+            to_port: 443
+            cidr_ip: 0.0.0.0/0
+            cidr_ipv6: ::/0
+
+        tags:
+              Name: "{{ sg2 }}"
+
+      register: sg2_status
+
+    - name: "Creating ec2 instance"           
+      ec2:
+        key_name: "{{ keypair_name }}"
+        aws_access_key: "{{ access_key }}"
+        aws_secret_key: "{{ secret_key }}"
+        region: "{{ region }}"
+        instance_type: t2.micro
+        image: ami-052cef05d01020f1d
+        user_data: "{{ lookup('file', 'user_data.sh') }}"
+        wait: yes
+        group_id:
+          - "{{ sg1_status.group_id }}"
+          - "{{ sg2_status.group_id }}"
+
+        instance_tags:
+          Name: "webserver"
+          Project: Uber
+         
+        count_tag:
+          Name: "webserver"
+        exact_count: 2 
+
+     
